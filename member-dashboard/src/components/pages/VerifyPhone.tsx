@@ -24,7 +24,7 @@ export function VerifyPhone({ uid, phone, onVerified }: Props) {
   }
     try {
       setLoading(true);
-      await axios.post("http://localhost:5002/send-otp", {
+      await axios.post("http://localhost:5003/send-otp", {
         phone,
       });
       setSent(true);
@@ -42,7 +42,7 @@ export function VerifyPhone({ uid, phone, onVerified }: Props) {
     return;
   }
   try {
-    const res = await fetch("http://localhost:5002/verify-otp", {
+    const res = await fetch("http://localhost:5003/verify-otp", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({ phone, otp }),

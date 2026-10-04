@@ -1,6 +1,6 @@
 import axios from "axios";
 
-const API_BASE = "http://localhost:5002";
+const API_BASE = "http://localhost:5003";
 
 export const sendEmiOtp = async (emiId: string) => {
   return axios.post(`${API_BASE}/send-otp`, { emiId });

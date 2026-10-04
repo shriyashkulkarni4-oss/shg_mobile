@@ -29,7 +29,7 @@ export default function OTPVerification({
       console.log("Sending OTP to:", phoneNumber);
 
       // const res = await fetch(`${OTP_BACKEND_URL}/send-otp`, {
-      const res = await fetch("http://localhost:5002/send-otp", {
+      const res = await fetch("http://localhost:5003/send-otp", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ phone: phoneNumber, emiId }),
@@ -52,7 +52,7 @@ const verifyOtp = async () => {
 
   try {
     // const res = await fetch(`${OTP_BACKEND_URL}/verify-otp`, {
-    const res = await fetch("http://localhost:5002/verify-otp", {
+    const res = await fetch("http://localhost:5003/verify-otp", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({

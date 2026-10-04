@@ -133,6 +133,14 @@ app.post("/send-email", async (req, res) => {
 
     res.json({ success: true });
   } catch (err) {
+    if (err.message && (err.message.includes("invalid_grant") || err.message.includes("unauthorized_client"))) {
+      console.error("❌ GMAIL OAUTH ERROR: Refresh token is invalid, revoked, or belongs to a different Client ID.");
+      console.error("👉 Please run 'npm run get-token' to generate a new verified refresh token.");
+      return res.status(401).json({
+        success: false,
+        error: "Google OAuth refresh token expired or invalid. Run 'npm run get-token' to regenerate.",
+      });
+    }
     console.error("GMAIL ERROR:", err);
     res.status(500).json({ success: false, error: err.message });
   }
@@ -184,6 +192,14 @@ app.post("/create-meet", async (req, res) => {
       eventId: response.data.id,
     });
   } catch (err) {
+    if (err.message && (err.message.includes("invalid_grant") || err.message.includes("unauthorized_client"))) {
+      console.error("❌ MEET OAUTH ERROR: Refresh token is invalid, revoked, or belongs to a different Client ID.");
+      console.error("👉 Please run 'npm run get-token' to generate a new verified refresh token.");
+      return res.status(401).json({
+        success: false,
+        error: "Google OAuth refresh token expired or invalid. Run 'npm run get-token' to regenerate.",
+      });
+    }
     console.error("MEET ERROR:", err);
     res.status(500).json({ success: false, error: err.message });
   }
