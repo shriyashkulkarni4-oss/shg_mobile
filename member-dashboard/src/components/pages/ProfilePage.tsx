@@ -9,7 +9,7 @@ import { Tabs, TabsContent, TabsList, TabsTrigger } from "../ui/tabs";
 import { User, Mail, Phone, MapPin, Calendar, Edit2, Save, Download, QrCode } from "lucide-react";
 import { toast } from "sonner";
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogTrigger } from "../ui/dialog";
-import { doc, onSnapshot, updateDoc } from "firebase/firestore";
+import { collection, doc, getDoc, getDocs, onSnapshot, updateDoc } from "firebase/firestore";
 import { db } from "../firebase"; // adjust path if needed
 import { useEffect } from "react";
 import { useAuth } from "../AuthContext"; // adjust path
@@ -23,38 +23,94 @@ export function ProfilePage({ memberData }: ProfilePageProps) {
   const [isEditing, setIsEditing] = useState(false);
   const [profileData, setProfileData] = useState<any>(null);
   const [loadingProfile, setLoadingProfile] = useState(true);
-const { uid } = useAuth();
+  const [groupRank, setGroupRank] = useState(0);
+  const [totalGroupMembers, setTotalGroupMembers] = useState(0);
+  const [goalsAchievedCount, setGoalsAchievedCount] = useState(0);
+  const [learningCompletedCount, setLearningCompletedCount] = useState(0);
+  const [liveTrustScore, setLiveTrustScore] = useState(memberData?.trustScore?.total || 0);
+  const { uid, shgId } = useAuth();
 
-useEffect(() => {
-  if (!uid) return;
+  useEffect(() => {
+    if (!uid) return;
 
-  const userRef = doc(db, "users", uid);
+    const userRef = doc(db, "users", uid);
 
-  const unsub = onSnapshot(userRef, (snap) => {
-    if (snap.exists()) {
-      const data = snap.data();
-      setProfileData({
-        phone: data.phoneNumber || "",
-        email: data.email || "",
-        address: data.address || "",
-        occupation: data.occupation || "",
-        annualIncome: data.annualIncome || "",
-      });
-    } else {
-      setProfileData({
-        phone: "",
-        email: "",
-        address: "",
-        occupation: "",
-        annualIncome: "",
-      });
-    }
+    const unsub = onSnapshot(userRef, (snap) => {
+      if (snap.exists()) {
+        const data = snap.data();
+        setProfileData({
+          phone: data.phoneNumber || "",
+          email: data.email || "",
+          address: data.address || "",
+          occupation: data.occupation || "",
+          annualIncome: data.annualIncome || "",
+        });
+      } else {
+        setProfileData({
+          phone: "",
+          email: "",
+          address: "",
+          occupation: "",
+          annualIncome: "",
+        });
+      }
 
-    setLoadingProfile(false);
-  });
+      setLoadingProfile(false);
+    });
 
-  return () => unsub();
-}, [uid]);
+    return () => unsub();
+  }, [uid]);
+
+  useEffect(() => {
+    if (!shgId || !uid) return;
+
+    const fetchStats = async () => {
+      try {
+        // Group rank
+        const membersRef = collection(db, "ShgGroups", shgId, "members");
+        const snap = await getDocs(membersRef);
+        const allMembers = snap.docs.map((d) => ({
+          id: d.id,
+          trustScore: d.data().trustScore ?? 0,
+        }));
+        allMembers.sort((a, b) => b.trustScore - a.trustScore);
+        const userIndex = allMembers.findIndex((m) => m.id === uid);
+        setTotalGroupMembers(allMembers.length);
+        setGroupRank(userIndex !== -1 ? userIndex + 1 : 1);
+
+        const currentM = allMembers.find((m) => m.id === uid);
+        if (currentM) setLiveTrustScore(currentM.trustScore);
+
+        // Goals achieved
+        const goalsSnap = await getDocs(collection(db, "savingGoal", uid, "goals"));
+        let achieved = 0;
+        goalsSnap.forEach((g) => {
+          const d = g.data();
+          if (d.goalAchieved || (d.currentAmount && d.targetAmount && d.currentAmount >= d.targetAmount)) {
+            achieved++;
+          }
+        });
+        setGoalsAchievedCount(achieved);
+
+        // Learning modules
+        const litSnap = await getDoc(doc(db, "FinancialLiteracy", uid));
+        if (litSnap.exists()) {
+          const lData = litSnap.data();
+          let modCount = 0;
+          if (lData.modules) {
+            Object.values(lData.modules).forEach((m: any) => {
+              if (m.completed) modCount++;
+            });
+          }
+          setLearningCompletedCount(modCount);
+        }
+      } catch (e) {
+        console.error("Profile stats fetch error:", e);
+      }
+    };
+
+    fetchStats();
+  }, [shgId, uid]);
 
 
 
@@ -379,7 +435,7 @@ if (loadingProfile || !profileData) {
               <CardContent className="space-y-3">
                 <div className="flex justify-between">
                   <span className="text-gray-600">Current Score</span>
-                  <span className="text-teal-600 text-xl">{memberData.trustScore.total}/100</span>
+                  <span className="text-teal-600 text-xl">{liveTrustScore}/100</span>
                 </div>
                 <div className="flex justify-between">
                   <span className="text-gray-600">Financial Repayment</span>
@@ -403,19 +459,27 @@ if (loadingProfile || !profileData) {
               <CardContent className="space-y-3">
                 <div className="flex justify-between">
                   <span className="text-gray-600">Badges Earned</span>
-                  <span className="text-gray-900">{memberData.achievements.filter((a: any) => a.earned).length}</span>
+                  <span className="text-gray-900">
+                    {goalsAchievedCount > 0 || liveTrustScore >= 70 ? "Active" : "In Progress"}
+                  </span>
                 </div>
                 <div className="flex justify-between">
                   <span className="text-gray-600">Learning Modules</span>
-                  <span className="text-gray-900">2 Completed</span>
+                  <span className="text-gray-900">
+                    {learningCompletedCount > 0 ? `${learningCompletedCount} Completed` : "In Progress"}
+                  </span>
                 </div>
                 <div className="flex justify-between">
                   <span className="text-gray-600">Goals Achieved</span>
-                  <span className="text-gray-900">0</span>
+                  <span className="text-gray-900">{goalsAchievedCount}</span>
                 </div>
                 <div className="flex justify-between">
                   <span className="text-gray-600">Group Rank</span>
-                  <span className="text-orange-600">3rd</span>
+                  <span className="text-orange-600 font-medium">
+                    {groupRank > 0 && totalGroupMembers > 0
+                      ? `${groupRank} of ${totalGroupMembers}`
+                      : "1st of 1"}
+                  </span>
                 </div>
               </CardContent>
             </Card>

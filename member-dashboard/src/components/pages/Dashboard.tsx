@@ -23,12 +23,14 @@ export function Dashboard({ memberData }: DashboardProps) {
 const [totalMeetings, setTotalMeetings] = useState(0);
 const [attendanceScore, setAttendanceScore] = useState(0);
   const [totalMonthlyRounds, setTotalMonthlyRounds] = useState(0);
-const [paidMonthlyRounds, setPaidMonthlyRounds] = useState(0);
-const [monthlyRoundScore, setMonthlyRoundScore] = useState(0);
-const [loanDisciplineScore, setLoanDisciplineScore] = useState(0);
-const [loanResponsibilityScore, setLoanResponsibilityScore] = useState(0);
-const [loanRepaymentScore, setLoanRepaymentScore] = useState(0);
-const [totalTrustScore, setTotalTrustScore] = useState(0);
+  const [paidMonthlyRounds, setPaidMonthlyRounds] = useState(0);
+  const [monthlyRoundScore, setMonthlyRoundScore] = useState(0);
+  const [loanDisciplineScore, setLoanDisciplineScore] = useState(0);
+  const [loanResponsibilityScore, setLoanResponsibilityScore] = useState(0);
+  const [loanRepaymentScore, setLoanRepaymentScore] = useState(0);
+  const [totalTrustScore, setTotalTrustScore] = useState(0);
+  const [groupRank, setGroupRank] = useState(0);
+  const [totalGroupMembers, setTotalGroupMembers] = useState(0);
 
   const { shgId, uid} = useAuth();
   const { t } = useLanguage();
@@ -125,176 +127,186 @@ useEffect(() => {
 useEffect(() => {
   if (!shgId || !uid) return;
 
-  const fetchAttendancePresent = async () => {
-    const memberRef = doc(db, "ShgGroups", shgId, "members", uid);
-    const snap = await getDoc(memberRef);
+  const fetchAttendance = async () => {
+    try {
+      const memberRef = doc(db, "ShgGroups", shgId, "members", uid);
+      const snap = await getDoc(memberRef);
+      const mData = snap.exists() ? snap.data() : {};
 
-    if (snap.exists()) {
-      setAttendancePresent(snap.data().attendancePresent || 0);
+      const meetingsSnap = await getDocs(
+        collection(db, "ShgGroups", shgId, "meetings")
+      );
+      const groupMeetingCount = meetingsSnap.size;
+      setTotalMeetings(groupMeetingCount);
+
+      // Check if admin stored attendance percentage directly (0-100)
+      if (typeof mData.attendance === "number") {
+        const score = (mData.attendance / 100) * 20;
+        setAttendanceScore(Number(Math.min(20, Math.max(0, score)).toFixed(1)));
+        setAttendancePresent(mData.attendancePresent ?? Math.round((mData.attendance / 100) * (groupMeetingCount || 1)));
+        return;
+      }
+
+      const present = mData.attendancePresent ?? 0;
+      const total = mData.attendanceTotal ?? groupMeetingCount;
+      setAttendancePresent(present);
+
+      if (total === 0) {
+        // If no meetings have occurred yet in the group, member is in perfect standing (20/20)
+        setAttendanceScore(20);
+      } else {
+        const ratio = Math.min(1, present / total);
+        setAttendanceScore(Number((ratio * 20).toFixed(1)));
+      }
+    } catch (e) {
+      console.error("Attendance score error:", e);
+      setAttendanceScore(20);
     }
   };
 
-  fetchAttendancePresent();
+  fetchAttendance();
 }, [shgId, uid]);
 
-useEffect(() => {
-  if (!shgId) return;
-
-  const fetchTotalMeetings = async () => {
-    const meetingsSnap = await getDocs(
-      collection(db, "ShgGroups", shgId, "meetings")
-    );
-
-    setTotalMeetings(meetingsSnap.size);
-  };
-
-  fetchTotalMeetings();
-}, [shgId]);
-useEffect(() => {
-  if (totalMeetings === 0) {
-    setAttendanceScore(0);
-    return;
-  }
-
-  const score = (attendancePresent / totalMeetings) * 20;
-  setAttendanceScore(Number(score.toFixed(1)));
-}, [attendancePresent, totalMeetings]);
 useEffect(() => {
   if (!shgId || !uid) return;
 
   const fetchMonthlyRoundsScore = async () => {
-    let total = 0;
-    let paid = 0;
-
-    const roundsSnap = await getDocs(
-      collection(db, "ShgGroups", shgId, "monthlyRounds")
-    );
-
-    total = roundsSnap.size;
-
-    for (const roundDoc of roundsSnap.docs) {
-      const contribRef = doc(
-        db,
-        "ShgGroups",
-        shgId,
-        "monthlyRounds",
-        roundDoc.id,
-        "contributions",
-        uid
+    try {
+      const roundsSnap = await getDocs(
+        collection(db, "ShgGroups", shgId, "monthlyRounds")
       );
 
-      const contribSnap = await getDoc(contribRef);
+      const totalRounds = roundsSnap.size;
+      let paid = 0;
 
-      if (contribSnap.exists()) {
-        paid++;
+      for (const roundDoc of roundsSnap.docs) {
+        const contribRef = doc(
+          db,
+          "ShgGroups",
+          shgId,
+          "monthlyRounds",
+          roundDoc.id,
+          "contributions",
+          uid
+        );
+
+        const contribSnap = await getDoc(contribRef);
+        if (contribSnap.exists()) {
+          paid++;
+        }
       }
-    }
 
-    setTotalMonthlyRounds(total);
-    setPaidMonthlyRounds(paid);
+      setTotalMonthlyRounds(totalRounds);
+      setPaidMonthlyRounds(paid);
+
+      if (totalRounds === 0) {
+        // No rounds created yet -> perfect base score 40
+        setMonthlyRoundScore(40);
+      } else {
+        const ratio = Math.min(1, paid / totalRounds);
+        setMonthlyRoundScore(Number((ratio * 40).toFixed(1)));
+      }
+    } catch (e) {
+      console.error("Monthly rounds score error:", e);
+      setMonthlyRoundScore(40);
+    }
   };
 
   fetchMonthlyRoundsScore();
 }, [shgId, uid]);
-useEffect(() => {
-  if (totalMonthlyRounds === 0) {
-    setMonthlyRoundScore(0);
-    return;
-  }
 
-  const score = (paidMonthlyRounds / totalMonthlyRounds) * 40;
-  setMonthlyRoundScore(Number(score.toFixed(1)));
-}, [paidMonthlyRounds, totalMonthlyRounds]);
 useEffect(() => {
   if (!shgId || !uid) return;
 
   const calculateLoanTrustScore = async () => {
-    let totalLoanAmount = 0;
-    let totalRemainingAmount = 0;
+    try {
+      const allLoansSnap = await getDocs(
+        collection(db, "ShgGroups", shgId, "loans")
+      );
 
-    let totalLoans = 0;
-    let completedLoans = 0;
+      let totalLoans = 0;
+      let totalPrincipal = 0;
+      let totalRemaining = 0;
+      let onTimeEmis = 0;
+      let totalDueOrPaidEmis = 0;
 
-    let totalEmis = 0;
-    let onTimeEmis = 0;
+      allLoansSnap.forEach((docSnap) => {
+        const loan = docSnap.data();
+        if (loan.memberId !== uid) return;
 
-    let groupMaxLoan = 0;
+        totalLoans++;
+        const principal = Number(loan.principalAmount || loan.amount || 0);
+        const remaining = Number(loan.remainingAmount ?? (loan.status === "COMPLETED" ? 0 : principal));
+        const paid = Number(loan.paidAmount || (principal - remaining));
 
-    // 🔹 Fetch all loans of group (for max loan)
-    const allLoansSnap = await getDocs(
-      collection(db, "ShgGroups", shgId, "loans")
-    );
+        totalPrincipal += principal;
+        totalRemaining += remaining;
 
-    allLoansSnap.forEach((doc) => {
-      const loan = doc.data();
-      groupMaxLoan = Math.max(groupMaxLoan, loan.principalAmount || 0);
-    });
+        if (loan.dueDates && Array.isArray(loan.dueDates)) {
+          const now = new Date();
+          loan.dueDates.forEach((d: any) => {
+            if (!d) return;
+            const isPaid = Boolean(d.paid);
+            let dueDate: Date | null = null;
+            if (d.date) {
+              dueDate = typeof d.date.toDate === "function" ? d.date.toDate() : new Date(d.date.seconds ? d.date.seconds * 1000 : d.date);
+            }
 
-    // 🔹 Fetch current user's loans
-    allLoansSnap.forEach((doc) => {
-      const loan = doc.data();
+            const isPastDue = dueDate ? dueDate < now : false;
 
-      if (loan.memberId !== uid) return;
+            if (isPaid) {
+              totalDueOrPaidEmis++;
+              let paidDate: Date | null = null;
+              if (d.paidAt) {
+                paidDate = typeof d.paidAt.toDate === "function" ? d.paidAt.toDate() : new Date(d.paidAt.seconds ? d.paidAt.seconds * 1000 : d.paidAt);
+              }
 
-      totalLoans++;
-      totalLoanAmount += loan.principalAmount || 0;
-      totalRemainingAmount += loan.remainingAmount || 0;
-
-      if (loan.remainingAmount === 0) {
-        completedLoans++;
-      }
-
-      // EMI discipline
-      if (loan.dueDates) {
-        loan.dueDates.forEach((d: any) => {
-          totalEmis++;
-          if (d.paid && d.paidAt && d.date) {
-            try {
-              let paidDate = typeof d.paidAt.toDate === "function" ? d.paidAt.toDate() : new Date(d.paidAt.seconds ? d.paidAt.seconds * 1000 : d.paidAt);
-              let dueDate = typeof d.date.toDate === "function" ? d.date.toDate() : new Date(d.date.seconds ? d.date.seconds * 1000 : d.date);
-
-              if (paidDate <= dueDate) {
+              // Within grace period (2 days) is considered on-time
+              if (!dueDate || !paidDate || paidDate.getTime() <= dueDate.getTime() + (2 * 86400000)) {
                 onTimeEmis++;
               }
-            } catch (e) {
-              console.error("Failed to parse EMI dates", e);
+            } else if (isPastDue) {
+              totalDueOrPaidEmis++;
             }
-          }
-        });
+          });
+        }
+      });
+
+      // CASE 1: Member has no loans (Zero-debt saver)
+      if (totalLoans === 0) {
+        setLoanDisciplineScore(24);
+        setLoanResponsibilityScore(14);
+        setLoanRepaymentScore(38);
+        return;
       }
-    });
 
-    // 🔹 DISCIPLINE SCORE (25)
-    const emiScore =
-      totalEmis === 0 ? 0 : (onTimeEmis / totalEmis) * 15;
+      // CASE 2: Member has active or completed loans
+      let emiDisciplineRatio = 1;
+      if (totalDueOrPaidEmis > 0) {
+        emiDisciplineRatio = Math.max(0, onTimeEmis / totalDueOrPaidEmis);
+      }
+      const disciplineScore = Number((emiDisciplineRatio * 25).toFixed(1));
 
-    const completionScore =
-      totalLoans === 0 ? 0 : (completedLoans / totalLoans) * 10;
+      let repaymentRatio = 1;
+      if (totalPrincipal > 0) {
+        repaymentRatio = Math.min(1, Math.max(0, (totalPrincipal - totalRemaining) / totalPrincipal));
+      }
+      const completionScore = Number((repaymentRatio * 15).toFixed(1));
 
-    const disciplineScore = emiScore + completionScore;
+      const finalScore = Math.min(40, Math.max(0, Number((disciplineScore + completionScore).toFixed(1))));
 
-    // 🔹 RESPONSIBILITY SCORE (15)
-    let responsibilityScore = 0;
-
-    if (groupMaxLoan > 0 && totalLoanAmount > 0) {
-      responsibilityScore =
-        (Math.log10(totalLoanAmount + 1) /
-          Math.log10(groupMaxLoan + 1)) * 15;
+      setLoanDisciplineScore(disciplineScore);
+      setLoanResponsibilityScore(completionScore);
+      setLoanRepaymentScore(finalScore);
+    } catch (err) {
+      console.error("Loan trust score calculation error:", err);
+      setLoanRepaymentScore(38);
     }
-
-    // 🔹 FINAL SCORE
-    const finalScore = Math.min(
-      40,
-      Math.max(0, disciplineScore + responsibilityScore)
-    );
-
-    setLoanDisciplineScore(Number(disciplineScore.toFixed(1)));
-    setLoanResponsibilityScore(Number(responsibilityScore.toFixed(1)));
-    setLoanRepaymentScore(Number(finalScore.toFixed(1)));
   };
 
   calculateLoanTrustScore();
 }, [shgId, uid]);
+
 useEffect(() => {
   const total =
     loanRepaymentScore +
@@ -303,9 +315,10 @@ useEffect(() => {
 
   setTotalTrustScore(Number(total.toFixed(1)));
 }, [loanRepaymentScore, monthlyRoundScore, attendanceScore]);
+
 useEffect(() => {
   if (!shgId || !uid) return;
-  if (isNaN(totalTrustScore)) return;
+  if (isNaN(totalTrustScore) || totalTrustScore <= 0) return;
 
   const updateTrustScore = async () => {
     try {
@@ -320,6 +333,45 @@ useEffect(() => {
 
   updateTrustScore();
 }, [shgId, uid, totalTrustScore]);
+
+useEffect(() => {
+  if (!shgId || !uid) return;
+
+  const fetchGroupRank = async () => {
+    try {
+      const membersRef = collection(db, "ShgGroups", shgId, "members");
+      const snap = await getDocs(membersRef);
+
+      const allMembers = snap.docs.map((d) => ({
+        id: d.id,
+        trustScore: d.data().trustScore ?? 0,
+      }));
+
+      // Sort by trustScore descending
+      allMembers.sort((a, b) => b.trustScore - a.trustScore);
+
+      const total = allMembers.length;
+      const userIndex = allMembers.findIndex((m) => m.id === uid);
+      const rank = userIndex !== -1 ? userIndex + 1 : 1;
+
+      setTotalGroupMembers(total);
+      setGroupRank(rank);
+    } catch (err) {
+      console.error("Failed to fetch group rank:", err);
+    }
+  };
+
+  fetchGroupRank();
+}, [shgId, uid, totalTrustScore]);
+
+const getOrdinal = (n: number) => {
+  const s = ["th", "st", "nd", "rd"];
+  const v = n % 100;
+  return n + (s[(v - 20) % 10] || s[v] || s[0]);
+};
+
+  const currentDisplayTrustScore =
+    totalTrustScore > 0 ? totalTrustScore : memberData?.trustScore?.total || 0;
 
   return (
     <div className="max-w-[1600px] mx-auto space-y-8">
@@ -360,7 +412,13 @@ useEffect(() => {
             <div className="flex items-center justify-between">
               <div>
                 <p className="text-sm text-gray-600">{t("group_rank", "dashboard")}</p>
-                <p className="text-2xl text-gray-900">3rd of {memberData.groupStats.totalMembers}</p>
+                <p className="text-2xl text-gray-900">
+                  {groupRank > 0 && totalGroupMembers > 0
+                    ? `${getOrdinal(groupRank)} of ${totalGroupMembers}`
+                    : memberData?.groupStats?.totalMembers > 0
+                    ? `1st of ${memberData.groupStats.totalMembers}`
+                    : "1st of 1"}
+                </p>
               </div>
               <div className="w-12 h-12 rounded-full bg-orange-100 flex items-center justify-center">
                 <Users className="w-6 h-6 text-orange-600" />
@@ -375,7 +433,7 @@ useEffect(() => {
         {/* Trust Score - Takes 2 columns */}
         <div className="lg:col-span-2">
           <TrustScoreGauge
-            score={memberData.trustScore.total}
+            score={currentDisplayTrustScore}
             financialScore={loanRepaymentScore}
             timelinessScore={monthlyRoundScore}
             attendanceScore={attendanceScore}

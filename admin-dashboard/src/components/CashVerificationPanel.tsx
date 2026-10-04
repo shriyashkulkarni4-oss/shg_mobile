@@ -26,15 +26,15 @@ export default function CashVerificationPanel({
   const [loading, setLoading] = useState(false);
 
   const verifyCashPayment = async () => {
-    if (otp.length !== 6) {
-      toast.error("Enter valid 6-digit OTP");
+    if (otp.length !== 4) {
+      toast.error("Enter valid 4-digit OTP");
       return;
     }
 
     setLoading(true);
 
     try {
-      const res = await fetch("http://localhost:5001/verify-otp", {
+      const res = await fetch("http://localhost:5002/verify-otp", {
         method: "POST",
         headers: {
           "Content-Type": "application/json",

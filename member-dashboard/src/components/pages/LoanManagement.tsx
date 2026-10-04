@@ -1645,7 +1645,7 @@ const handleCashPayment = async (loan: any) => {
     });
 
     // 🔥 2. SEND OTP
-    const res = await fetch("http://localhost:5001/send-otp", {
+    const res = await fetch("http://localhost:5002/send-otp", {
       method: "POST",
       headers: {
         "Content-Type": "application/json",

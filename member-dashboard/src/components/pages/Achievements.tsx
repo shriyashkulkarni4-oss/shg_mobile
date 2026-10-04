@@ -1,9 +1,13 @@
+import { useEffect, useState } from "react";
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "../ui/card";
 import { Badge } from "../ui/badge";
 import { Progress } from "../ui/progress";
 import { Award, Lock, CheckCircle2, TrendingUp, Target } from "lucide-react";
+import { collection, doc, getDoc, getDocs, onSnapshot } from "firebase/firestore";
+import { db } from "../firebase";
+import { useAuth } from "../AuthContext";
 
-interface Achievement {
+export interface Achievement {
   id: string;
   title: string;
   description: string;
@@ -13,20 +17,224 @@ interface Achievement {
 }
 
 interface AchievementsProps {
-  achievements: Achievement[];
-  trustScore: number;
+  achievements?: Achievement[];
+  trustScore?: number;
 }
 
-export function Achievements({ achievements, trustScore }: AchievementsProps) {
-  const earnedCount = achievements.filter(a => a.earned).length;
+export function Achievements({ achievements: propAchievements, trustScore: propTrustScore }: AchievementsProps) {
+  const { shgId, uid } = useAuth();
+  const [loading, setLoading] = useState(true);
+  const [currentTrustScore, setCurrentTrustScore] = useState(propTrustScore || 0);
+  const [evaluatedAchievements, setEvaluatedAchievements] = useState<Achievement[]>([]);
+
+  useEffect(() => {
+    if (!shgId || !uid) {
+      setLoading(false);
+      return;
+    }
+
+    const fetchAllData = async () => {
+      try {
+        setLoading(true);
+
+        // 1️⃣ Fetch member document
+        const memberRef = doc(db, "ShgGroups", shgId, "members", uid);
+        const memberSnap = await getDoc(memberRef);
+        const memberData = memberSnap.exists() ? memberSnap.data() : null;
+        const liveTrustScore = memberData?.trustScore ?? propTrustScore ?? 0;
+        setCurrentTrustScore(Number(liveTrustScore));
+
+        const joinedDate = memberData?.joinedAt?.toDate
+          ? memberData.joinedAt.toDate().toLocaleDateString("en-IN", { day: "2-digit", month: "short", year: "numeric" })
+          : "Active";
+
+        const attendancePresent = memberData?.attendancePresent || 0;
+
+        // 2️⃣ Fetch meetings
+        const meetingsSnap = await getDocs(collection(db, "ShgGroups", shgId, "meetings"));
+        const totalMeetings = meetingsSnap.size;
+        const attendanceRate = totalMeetings > 0 ? (attendancePresent / totalMeetings) : (attendancePresent > 0 ? 1 : 0);
+
+        // 3️⃣ Fetch monthly rounds & contributions
+        const roundsSnap = await getDocs(collection(db, "ShgGroups", shgId, "monthlyRounds"));
+        let paidRoundsCount = 0;
+        let totalContributed = 0;
+        let firstRoundDate = "";
+
+        for (const roundDoc of roundsSnap.docs) {
+          const contribRef = doc(db, "ShgGroups", shgId, "monthlyRounds", roundDoc.id, "contributions", uid);
+          const contribSnap = await getDoc(contribRef);
+          if (contribSnap.exists()) {
+            paidRoundsCount++;
+            const cData = contribSnap.data();
+            totalContributed += Number(cData.amountPaid || 0);
+            if (!firstRoundDate && cData.paidAt) {
+              const pDate = cData.paidAt.toDate ? cData.paidAt.toDate() : new Date();
+              firstRoundDate = pDate.toLocaleDateString("en-IN", { day: "2-digit", month: "short", year: "numeric" });
+            }
+          }
+        }
+
+        // 4️⃣ Fetch loans
+        const loansSnap = await getDocs(collection(db, "ShgGroups", shgId, "loans"));
+        let userLoansCount = 0;
+        let completedLoansCount = 0;
+        let hasBlockchainPayment = false;
+        let onTimeEmis = 0;
+
+        loansSnap.forEach((docSnap) => {
+          const loan = docSnap.data();
+          if (loan.memberId === uid) {
+            userLoansCount++;
+            if (loan.remainingAmount === 0 || loan.status === "COMPLETED") {
+              completedLoansCount++;
+            }
+            if (loan.dueDates && Array.isArray(loan.dueDates)) {
+              loan.dueDates.forEach((d: any) => {
+                if (d.txHash) hasBlockchainPayment = true;
+                if (d.paid) onTimeEmis++;
+              });
+            }
+          }
+        });
+
+        // 5️⃣ Fetch savings goals
+        const goalsSnap = await getDocs(collection(db, "savingGoal", uid, "goals"));
+        const totalGoalsCount = goalsSnap.size;
+        let achievedGoalsCount = 0;
+
+        goalsSnap.forEach((docSnap) => {
+          const g = docSnap.data();
+          if (g.goalAchieved || (g.currentAmount && g.targetAmount && g.currentAmount >= g.targetAmount)) {
+            achievedGoalsCount++;
+          }
+        });
+
+        // 6️⃣ Fetch Financial Literacy progress
+        const literacyRef = doc(db, "FinancialLiteracy", uid);
+        const literacySnap = await getDoc(literacyRef);
+        const literacyData = literacySnap.exists() ? literacySnap.data() : null;
+        const literacyProgress = Number(literacyData?.overallProgress || 0);
+
+        // 7️⃣ Evaluate Full Achievement Catalog
+        const list: Achievement[] = [
+          {
+            id: "shg_pioneer",
+            title: "SHG Pioneer",
+            description: "Joined the SHG group and activated membership",
+            earned: Boolean(memberData),
+            date: joinedDate,
+            icon: "🌱",
+          },
+          {
+            id: "first_saver",
+            title: "First Step Saver",
+            description: "Made your first monthly savings deposit into the group kitty",
+            earned: paidRoundsCount > 0 || totalContributed > 0,
+            date: firstRoundDate || "Earned",
+            icon: "💰",
+          },
+          {
+            id: "disciplined_saver",
+            title: "Disciplined Saver",
+            description: "Contributed consistently across 3 or more monthly rounds",
+            earned: paidRoundsCount >= 3,
+            date: paidRoundsCount >= 3 ? "Earned" : "",
+            icon: "🎯",
+          },
+          {
+            id: "wealth_builder",
+            title: "Wealth Builder",
+            description: "Accumulated ₹10,000+ in total cumulative savings contributions",
+            earned: totalContributed >= 10000,
+            date: totalContributed >= 10000 ? "Earned" : "",
+            icon: "🏦",
+          },
+          {
+            id: "active_participant",
+            title: "Active Participant",
+            description: "Maintained a strong attendance record in group meetings",
+            earned: attendanceRate >= 0.75 || attendancePresent >= 2,
+            date: attendanceRate >= 0.75 ? "Earned" : "",
+            icon: "👥",
+          },
+          {
+            id: "visionary_planner",
+            title: "Visionary Planner",
+            description: "Created your first personal savings goal",
+            earned: totalGoalsCount > 0,
+            date: totalGoalsCount > 0 ? "Earned" : "",
+            icon: "📝",
+          },
+          {
+            id: "goal_crusher",
+            title: "Goal Crusher",
+            description: "Successfully reached a savings goal target",
+            earned: achievedGoalsCount > 0,
+            date: achievedGoalsCount > 0 ? "Earned" : "",
+            icon: "🏆",
+          },
+          {
+            id: "financial_scholar",
+            title: "Financial Scholar",
+            description: "Completed modules in the Financial Literacy academy",
+            earned: literacyProgress > 0,
+            date: literacyProgress > 0 ? `${literacyProgress}% Done` : "",
+            icon: "🎓",
+          },
+          {
+            id: "credit_champion",
+            title: "Credit Champion",
+            description: "Repaid group loan EMIs responsibly and on time",
+            earned: onTimeEmis > 0 || completedLoansCount > 0,
+            date: onTimeEmis > 0 ? "Earned" : "",
+            icon: "⚡",
+          },
+          {
+            id: "trusted_pillar",
+            title: "Trusted Pillar",
+            description: "Achieved a Trust Score of 70 or higher",
+            earned: liveTrustScore >= 70,
+            date: liveTrustScore >= 70 ? "Earned" : "",
+            icon: "⭐",
+          },
+          {
+            id: "blockchain_trailblazer",
+            title: "Web3 Trailblazer",
+            description: "Completed an on-chain immutable EMI payment",
+            earned: hasBlockchainPayment,
+            date: hasBlockchainPayment ? "Verified" : "",
+            icon: "⛓️",
+          },
+        ];
+
+        setEvaluatedAchievements(list);
+      } catch (err) {
+        console.error("Error fetching achievements:", err);
+      } finally {
+        setLoading(false);
+      }
+    };
+
+    fetchAllData();
+  }, [shgId, uid, propTrustScore]);
+
+  // Use evaluated achievements or fallback to propAchievements if present
+  const achievements = evaluatedAchievements.length > 0
+    ? evaluatedAchievements
+    : (propAchievements && propAchievements.length > 0 ? propAchievements : []);
+
+  const earnedCount = achievements.filter((a) => a.earned).length;
   const totalCount = achievements.length;
-  const progressPercentage = (earnedCount / totalCount) * 100;
+  // Guard against division by zero (prevents NaN)
+  const progressPercentage = totalCount > 0 ? (earnedCount / totalCount) * 100 : 0;
+  const displayScore = currentTrustScore || propTrustScore || 0;
 
   const milestones = [
-    { score: 70, title: "Good Standing", achieved: trustScore >= 70, icon: "🌟" },
-    { score: 80, title: "Trusted Member", achieved: trustScore >= 80, icon: "⭐" },
-    { score: 90, title: "Exemplary Member", achieved: trustScore >= 90, icon: "🏆" },
-    { score: 95, title: "Star Performer", achieved: trustScore >= 95, icon: "💎" },
+    { score: 70, title: "Good Standing", achieved: displayScore >= 70, icon: "🌟" },
+    { score: 80, title: "Trusted Member", achieved: displayScore >= 80, icon: "⭐" },
+    { score: 90, title: "Exemplary Member", achieved: displayScore >= 90, icon: "🏆" },
+    { score: 95, title: "Star Performer", achieved: displayScore >= 95, icon: "💎" },
   ];
 
   return (
@@ -57,7 +265,7 @@ export function Achievements({ achievements, trustScore }: AchievementsProps) {
               </div>
               <div>
                 <p className="text-sm text-gray-600">Current Trust Score</p>
-                <p className="text-3xl text-teal-600">{trustScore}</p>
+                <p className="text-3xl text-teal-600">{displayScore}</p>
               </div>
             </div>
 
@@ -75,7 +283,7 @@ export function Achievements({ achievements, trustScore }: AchievementsProps) {
           <div className="mt-6 space-y-2">
             <div className="flex justify-between text-sm">
               <span className="text-gray-600">Overall Progress</span>
-              <span className="text-gray-900">{earnedCount} achievements unlocked</span>
+              <span className="text-gray-900">{earnedCount} of {totalCount} achievements unlocked</span>
             </div>
             <Progress value={progressPercentage} className="h-3" />
           </div>
@@ -116,7 +324,7 @@ export function Achievements({ achievements, trustScore }: AchievementsProps) {
                   </div>
                   <p className="text-sm text-gray-600">
                     {milestone.achieved 
-                      ? `Achieved! Your trust score is ${trustScore}` 
+                      ? `Achieved! Your trust score is ${displayScore}` 
                       : `Reach trust score of ${milestone.score} to unlock`
                     }
                   </p>

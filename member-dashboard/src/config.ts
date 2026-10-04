@@ -1,1 +1,1 @@
-export const OTP_BACKEND_URL = "http://localhost:5000";
+export const OTP_BACKEND_URL = "http://localhost:5002";

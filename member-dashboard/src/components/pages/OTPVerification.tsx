@@ -29,7 +29,7 @@ export default function OTPVerification({
       console.log("Sending OTP to:", phoneNumber);
 
       // const res = await fetch(`${OTP_BACKEND_URL}/send-otp`, {
-      const res = await fetch("http://localhost:5001/send-otp", {
+      const res = await fetch("http://localhost:5002/send-otp", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ phone: phoneNumber, emiId }),
@@ -45,14 +45,14 @@ export default function OTPVerification({
   };
 
 const verifyOtp = async () => {
-  if (otp.length !== 6) {
-    toast.error("Enter valid 6-digit OTP");
+  if (otp.length !== 4) {
+    toast.error("Enter valid 4-digit OTP");
     return;
   }
 
   try {
     // const res = await fetch(`${OTP_BACKEND_URL}/verify-otp`, {
-    const res = await fetch("http://localhost:5001/verify-otp", {
+    const res = await fetch("http://localhost:5002/verify-otp", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({
@@ -87,7 +87,7 @@ const verifyOtp = async () => {
         <p>OTP sent to <b>{phoneNumber}</b></p>
 
         <Input
-          placeholder="Enter 6-digit OTP"
+          placeholder="Enter 4-digit OTP"
           value={otp}
           onChange={(e) => setOtp(e.target.value)}
         />

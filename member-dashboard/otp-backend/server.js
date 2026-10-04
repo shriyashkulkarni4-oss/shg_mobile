@@ -1,7 +1,7 @@
 require("dotenv").config();
 
 const cors = require("cors");
-const twilio = require("twilio");
+const axios = require("axios");
 const express = require("express");
 const bodyParser = require("body-parser");
 
@@ -22,7 +22,8 @@ app.use(bodyParser.json());
 /* =========================
    OTP STORE (IN-MEMORY)
 ========================= */
-// phone -> { otp, emiId, expiresAt, used }
+// phone -> { emiId, used, verificationId }
+// We only use this now to track the EMI context and Message Central verificationId.
 const otpStore = {};
 
 /* =========================
@@ -36,16 +37,28 @@ function normalizePhone(phone) {
 }
 
 /* =========================
-   TWILIO CLIENT (OPTIONAL)
+   HELPER: GET MESSAGE CENTRAL TOKEN
 ========================= */
-let client;
-try {
-  client = twilio(
-    process.env.TWILIO_ACCOUNT_SID,
-    process.env.TWILIO_AUTH_TOKEN
-  );
-} catch (err) {
-  console.warn("⚠️ Twilio not initialized. Running in DEV mode.");
+async function getMCToken() {
+  const customerId = process.env.MESSAGE_CENTRAL_CUSTOMER_ID;
+  const password = process.env.MESSAGE_CENTRAL_PASSWORD;
+  
+  if (!customerId || !password) {
+    throw new Error("Message Central credentials missing in .env");
+  }
+
+  const key = Buffer.from(password).toString("base64");
+
+  const response = await axios.get("https://cpaas.messagecentral.com/auth/v1/authentication/token", {
+    params: {
+      country: "IN",
+      customerId: customerId,
+      key: key,
+      scope: "NEW"
+    }
+  });
+
+  return response.data.token;
 }
 
 /* =========================
@@ -55,46 +68,75 @@ app.post("/send-otp", async (req, res) => {
   try {
     let { phone, emiId } = req.body;
 
-    if (!phone || !emiId) {
+    if (!phone) {
       return res.status(400).json({
         success: false,
-        message: "Phone and emiId required",
+        message: "Phone is required",
       });
     }
 
     phone = normalizePhone(phone);
 
-    const otp = Math.floor(100000 + Math.random() * 900000).toString();
-
+    // Track the context of the OTP request
     otpStore[phone] = {
-      otp,
       emiId,
-      expiresAt: Date.now() + 5 * 60 * 1000, // 5 minutes
       used: false,
+      verificationId: null,
     };
 
-    console.log("🔐 OTP GENERATED:", phone, otp);
+    console.log("🔐 REQUESTING OTP FROM MESSAGE CENTRAL FOR:", phone);
 
     /* =========================
-       SEND SMS (OPTIONAL)
+       SEND OTP (MESSAGE CENTRAL)
     ========================== */
-    if (client && process.env.TWILIO_PHONE_NUMBER) {
+    if (process.env.MESSAGE_CENTRAL_CUSTOMER_ID) {
       try {
-        await client.messages.create({
-          body: `Your EMI payment OTP is ${otp}`,
-          from: process.env.TWILIO_PHONE_NUMBER,
-          to: phone,
-        });
-        console.log("📩 OTP sent via Twilio");
-      } catch (twilioErr) {
-        console.error("Twilio Error:", twilioErr.message);
+        const token = await getMCToken();
+
+        // Note: Message Central requires these as QUERY PARAMETERS, not body payload
+        const mcRes = await axios.post(
+          "https://cpaas.messagecentral.com/verification/v3/send",
+          null, // empty body
+          {
+            params: {
+              countryCode: "91",
+              customerId: process.env.MESSAGE_CENTRAL_CUSTOMER_ID,
+              flowType: "SMS",
+              mobileNumber: phone.replace("+91", "")
+            },
+            headers: {
+              "authToken": token
+            }
+          }
+        );
+        
+        // Save the verificationId returned by Message Central so we can validate it later
+        if (mcRes.data && mcRes.data.data && mcRes.data.data.verificationId) {
+           otpStore[phone].verificationId = mcRes.data.data.verificationId;
+        }
+
+        console.log("📩 OTP sent via Message Central. Verification ID:", otpStore[phone].verificationId);
+      } catch (mcErr) {
+        const errorData = mcErr.response?.data;
+        if (errorData && (errorData.responseCode === 506 || errorData.message === 'REQUEST_ALREADY_EXISTS')) {
+          console.log("⚠️ OTP request already exists for this number. Reusing verificationId:", errorData.data?.verificationId);
+          if (errorData.data && errorData.data.verificationId) {
+            otpStore[phone].verificationId = errorData.data.verificationId;
+          }
+        } else {
+          console.error("Message Central Send Error:", errorData || mcErr.message);
+          return res.status(500).json({
+            success: false,
+            message: "Failed to send OTP via Message Central",
+            error: errorData || mcErr.message
+          });
+        }
       }
     }
 
-    // 🔥 DEV MODE: return OTP (remove in production)
     res.json({
       success: true,
-      otp, // remove later in production
+      message: "OTP dispatched"
     });
   } catch (err) {
     console.error("SEND OTP ERROR:", err);
@@ -108,51 +150,77 @@ app.post("/send-otp", async (req, res) => {
 /* =========================
    VERIFY OTP
 ========================= */
-app.post("/verify-otp", (req, res) => {
+app.post("/verify-otp", async (req, res) => {
   try {
     let { phone, otp, emiId } = req.body;
 
-    if (!phone || !otp || !emiId) {
+    if (!phone || !otp) {
       return res.status(400).json({
         success: false,
-        message: "Missing required fields",
+        message: "Missing phone or otp fields",
       });
     }
 
     phone = normalizePhone(phone);
 
+    // Check our local context
     const record = otpStore[phone];
-
-    if (!record) {
-      return res.status(400).json({
-        success: false,
-        message: "No OTP found",
-      });
-    }
-
-    if (record.used) {
+    
+    if (record && record.used) {
       return res.status(400).json({
         success: false,
         message: "OTP already used",
       });
     }
 
-    if (Date.now() > record.expiresAt) {
+    if (record && emiId && record.emiId !== emiId) {
       return res.status(400).json({
         success: false,
-        message: "OTP expired",
+        message: "Invalid OTP context (EMI mismatch)",
       });
     }
 
-    if (record.otp !== otp || record.emiId !== emiId) {
-      return res.status(400).json({
-        success: false,
-        message: "Invalid OTP",
-      });
+    /* =========================
+       VALIDATE OTP (MESSAGE CENTRAL)
+    ========================== */
+    if (process.env.MESSAGE_CENTRAL_CUSTOMER_ID) {
+      try {
+        if (!record || !record.verificationId) {
+          return res.status(400).json({
+             success: false,
+             message: "No verification ID found. Please send OTP first."
+          });
+        }
+
+        const token = await getMCToken();
+
+        // Note: Validate API expects verificationId and code as query params
+        const mcRes = await axios.get("https://cpaas.messagecentral.com/verification/v3/validateOtp", {
+          params: {
+            verificationId: record.verificationId,
+            code: otp
+          },
+          headers: {
+            "authToken": token
+          }
+        });
+
+        console.log("✅ Message Central Validation:", mcRes.data);
+        
+      } catch (mcErr) {
+        console.error("Message Central Verify Error:", mcErr.response?.data || mcErr.message);
+        return res.status(400).json({
+          success: false,
+          message: "Invalid or expired OTP",
+          error: mcErr.response?.data || mcErr.message
+        });
+      }
     }
 
-    // ✅ Mark OTP as used
-    record.used = true;
+    // ✅ Mark OTP as used in our context
+    if (record) {
+      record.used = true;
+    }
 
     console.log("✅ OTP VERIFIED:", phone);
 
@@ -172,7 +240,7 @@ app.post("/verify-otp", (req, res) => {
 /* =========================
    SERVER START
 ========================= */
-const PORT = 5002;
+const PORT = process.env.PORT || 5002;
 
 app.listen(PORT, () => {
   console.log(`🚀 OTP backend running on port ${PORT}`);

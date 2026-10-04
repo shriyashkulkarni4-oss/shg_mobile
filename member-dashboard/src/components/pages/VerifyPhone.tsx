@@ -24,7 +24,7 @@ export function VerifyPhone({ uid, phone, onVerified }: Props) {
   }
     try {
       setLoading(true);
-      await axios.post("http://localhost:5000/send-otp", {
+      await axios.post("http://localhost:5002/send-otp", {
         phone,
       });
       setSent(true);
@@ -37,12 +37,12 @@ export function VerifyPhone({ uid, phone, onVerified }: Props) {
   };
 
  const verifyOtp = async () => {
-  if (otp.length !== 6) {
-    toast.error("Enter valid 6-digit OTP");
+  if (otp.length !== 4) {
+    toast.error("Enter valid 4-digit OTP");
     return;
   }
   try {
-    const res = await fetch("http://localhost:5000/verify-otp", {
+    const res = await fetch("http://localhost:5002/verify-otp", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({ phone, otp }),
