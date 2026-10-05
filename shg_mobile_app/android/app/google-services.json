@@ -1,0 +1,29 @@
+{
+  "project_info": {
+    "project_number": "696142795555",
+    "project_id": "trustledger-a1ca1",
+    "storage_bucket": "trustledger-a1ca1.firebasestorage.app"
+  },
+  "client": [
+    {
+      "client_info": {
+        "mobilesdk_app_id": "1:696142795555:android:7cbb8d678b389d38fd3296",
+        "android_client_info": {
+          "package_name": "com.shg.shg_mobile_app"
+        }
+      },
+      "oauth_client": [],
+      "api_key": [
+        {
+          "current_key": "AIzaSyDXWsedVzbxxbJy0YZ0pCG_otV9O1U_B8g"
+        }
+      ],
+      "services": {
+        "appinvite_service": {
+          "other_platform_oauth_client": []
+        }
+      }
+    }
+  ],
+  "configuration_version": "1"
+}
