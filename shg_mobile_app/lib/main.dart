@@ -20,7 +20,7 @@ void main() async {
   } catch (e) {
     debugPrint("Firebase initialization error: $e");
   }
-
+  
   runApp(const SHGMobileApp());
 }
 
@@ -76,6 +76,7 @@ class SHGMobileApp extends StatelessWidget {
       ],
       child: MaterialApp.router(
         title: 'SHG Portal',
+        debugShowCheckedModeBanner: false, 
         theme: ThemeData(
           colorScheme: ColorScheme.fromSeed(seedColor: Colors.blue),
           useMaterial3: true,

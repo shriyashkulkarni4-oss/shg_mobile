@@ -250,13 +250,15 @@ class _LoginScreenState extends State<LoginScreen> with SingleTickerProviderStat
               mainAxisAlignment: MainAxisAlignment.center,
               children: [
                 const Text("Don't have an account? "),
-                TextButton(
-                  onPressed: () {
-                    context.go('/signup');
-                  },
-                  child: const Text(
-                    "Sign up here",
-                    style: TextStyle(color: Color(0xFF0D9488)),
+                Expanded(
+                  child: TextButton(
+                    onPressed: () {
+                      context.go('/signup');
+                    },
+                    child: const Text(
+                      "Sign up",
+                      style: TextStyle(color: Color(0xFF0D9488)),
+                    ),
                   ),
                 )
               ],

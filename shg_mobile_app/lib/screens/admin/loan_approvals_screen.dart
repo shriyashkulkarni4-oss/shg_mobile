@@ -45,7 +45,7 @@ class _LoanApprovalsScreenState extends State<LoanApprovalsScreen>
           labelColor: Colors.white,
           unselectedLabelColor: Colors.white60,
           tabs: const [
-            Tab(text: 'Pending Approvals', icon: Icon(Icons.pending_actions)),
+            
             Tab(text: 'All Loans', icon: Icon(Icons.list)),
           ],
         ),
@@ -53,7 +53,7 @@ class _LoanApprovalsScreenState extends State<LoanApprovalsScreen>
       body: TabBarView(
         controller: _tabController,
         children: [
-          _buildLoanList(shgId, filterStatus: 'PENDING'),
+          
           _buildLoanList(shgId),
         ],
       ),

@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
 import 'package:cloud_firestore/cloud_firestore.dart';
+import 'package:firebase_auth/firebase_auth.dart' hide AuthProvider;
 import 'package:provider/provider.dart';
 import '../../providers/auth_provider.dart';
 
@@ -12,8 +13,40 @@ class MembersListScreen extends StatefulWidget {
 
 class _MembersListScreenState extends State<MembersListScreen> {
   String searchQuery = "";
-  
-  // Removed mock data
+  bool _authLookupStarted = false;
+  bool _authLookupFailed = false;
+
+  Future<void> _loadAdminShgId() async {
+    final user = FirebaseAuth.instance.currentUser;
+    if (user == null) {
+      if (mounted) setState(() => _authLookupFailed = true);
+      return;
+    }
+
+    try {
+      final userDoc = await FirebaseFirestore.instance
+          .collection('users')
+          .doc(user.uid)
+          .get();
+      final userData = userDoc.data();
+      final shgId = userData?['shgId'] as String?;
+
+      if (!userDoc.exists || shgId == null || shgId.isEmpty) {
+        if (mounted) setState(() => _authLookupFailed = true);
+        return;
+      }
+
+      if (!mounted) return;
+      context.read<AuthProvider>().setAuthData(
+        shgId: shgId,
+        userRole: userData?['role'] as String? ?? 'admin',
+        userName: userData?['name'] as String? ?? 'Admin',
+      );
+    } catch (error) {
+      debugPrint('Failed to load admin SHG ID: $error');
+      if (mounted) setState(() => _authLookupFailed = true);
+    }
+  }
 
   @override
   Widget build(BuildContext context) {
@@ -23,7 +56,42 @@ class _MembersListScreenState extends State<MembersListScreen> {
           final shgId = authProvider.shgId;
 
           if (shgId == null) {
-            return const Center(child: Text("Loading auth..."));
+            if (!_authLookupStarted) {
+              _authLookupStarted = true;
+              WidgetsBinding.instance.addPostFrameCallback((_) {
+                _loadAdminShgId();
+              });
+            }
+
+            if (_authLookupFailed) {
+              return Center(
+                child: Padding(
+                  padding: const EdgeInsets.all(24),
+                  child: Column(
+                    mainAxisSize: MainAxisSize.min,
+                    children: [
+                      const Text(
+                        'Could not load your SHG. Check that your admin user '
+                        'document has a valid shgId.',
+                        textAlign: TextAlign.center,
+                      ),
+                      const SizedBox(height: 12),
+                      TextButton(
+                        onPressed: () {
+                          setState(() {
+                            _authLookupFailed = false;
+                            _authLookupStarted = false;
+                          });
+                        },
+                        child: const Text('Retry'),
+                      ),
+                    ],
+                  ),
+                ),
+              );
+            }
+
+            return const Center(child: CircularProgressIndicator());
           }
 
           return Column(
@@ -37,7 +105,10 @@ class _MembersListScreenState extends State<MembersListScreen> {
                     border: OutlineInputBorder(
                       borderRadius: BorderRadius.circular(12),
                     ),
-                    contentPadding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
+                    contentPadding: const EdgeInsets.symmetric(
+                      horizontal: 16,
+                      vertical: 8,
+                    ),
                   ),
                   onChanged: (val) {
                     setState(() {
@@ -63,12 +134,24 @@ class _MembersListScreenState extends State<MembersListScreen> {
                     }
 
                     final docs = snapshot.data?.docs ?? [];
-                    final allMembers = docs.map((d) => {'id': d.id, 'shgId': shgId, ...d.data() as Map<String, dynamic>}).toList();
+                    final allMembers = docs
+                        .map(
+                          (d) => {
+                            'id': d.id,
+                            'shgId': shgId,
+                            ...d.data() as Map<String, dynamic>,
+                          },
+                        )
+                        .toList();
 
-                    List<Map<String, dynamic>> filteredMembers = allMembers.where((m) {
-                      String name = m['name'] ?? m['firstName'] ?? '';
-                      return name.toLowerCase().contains(searchQuery.toLowerCase());
-                    }).toList();
+                    List<Map<String, dynamic>> filteredMembers = allMembers
+                        .where((m) {
+                          String name = m['name'] ?? m['firstName'] ?? '';
+                          return name.toLowerCase().contains(
+                            searchQuery.toLowerCase(),
+                          );
+                        })
+                        .toList();
 
                     if (filteredMembers.isEmpty) {
                       return const Center(child: Text("No members found."));
@@ -83,10 +166,10 @@ class _MembersListScreenState extends State<MembersListScreen> {
                     );
                   },
                 ),
-              )
+              ),
             ],
           );
-        }
+        },
       ),
     );
   }
@@ -98,13 +181,15 @@ class _MembersListScreenState extends State<MembersListScreen> {
     double trustScore = (member['trustScore'] ?? 0).toDouble();
     double savings = (member['savings'] ?? 0).toDouble();
     bool hasActiveLoan = member['hasActiveLoan'] ?? false;
-    
+
     return Card(
       elevation: 1,
       margin: const EdgeInsets.only(bottom: 12),
       shape: RoundedRectangleBorder(
-        side: BorderSide(color: isPending ? Colors.orange.shade200 : Colors.transparent),
-        borderRadius: BorderRadius.circular(12)
+        side: BorderSide(
+          color: isPending ? Colors.orange.shade200 : Colors.transparent,
+        ),
+        borderRadius: BorderRadius.circular(12),
       ),
       child: Padding(
         padding: const EdgeInsets.all(16.0),
@@ -125,18 +210,42 @@ class _MembersListScreenState extends State<MembersListScreen> {
                     children: [
                       Row(
                         children: [
-                          Text(name, style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 16)),
+                          Text(
+                            name,
+                            style: const TextStyle(
+                              fontWeight: FontWeight.bold,
+                              fontSize: 16,
+                            ),
+                          ),
                           const SizedBox(width: 8),
                           if (isPending)
                             Container(
-                              padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
-                              decoration: BoxDecoration(color: Colors.orange.shade100, borderRadius: BorderRadius.circular(4)),
-                              child: Text("Pending", style: TextStyle(fontSize: 10, color: Colors.orange.shade800)),
-                            )
+                              padding: const EdgeInsets.symmetric(
+                                horizontal: 6,
+                                vertical: 2,
+                              ),
+                              decoration: BoxDecoration(
+                                color: Colors.orange.shade100,
+                                borderRadius: BorderRadius.circular(4),
+                              ),
+                              child: Text(
+                                "Pending",
+                                style: TextStyle(
+                                  fontSize: 10,
+                                  color: Colors.orange.shade800,
+                                ),
+                              ),
+                            ),
                         ],
                       ),
                       const SizedBox(height: 4),
-                      Text("Joined: $joinedDate", style: const TextStyle(fontSize: 12, color: Colors.black54)),
+                      Text(
+                        "Joined: $joinedDate",
+                        style: const TextStyle(
+                          fontSize: 12,
+                          color: Colors.black54,
+                        ),
+                      ),
                     ],
                   ),
                 ),
@@ -144,10 +253,20 @@ class _MembersListScreenState extends State<MembersListScreen> {
                   Column(
                     crossAxisAlignment: CrossAxisAlignment.end,
                     children: [
-                      const Text("Trust Score", style: TextStyle(fontSize: 10, color: Colors.black54)),
-                      Text(trustScore.toString(), style: const TextStyle(fontSize: 16, fontWeight: FontWeight.bold, color: Colors.teal)),
+                      const Text(
+                        "Trust Score",
+                        style: TextStyle(fontSize: 10, color: Colors.black54),
+                      ),
+                      Text(
+                        trustScore.toString(),
+                        style: const TextStyle(
+                          fontSize: 16,
+                          fontWeight: FontWeight.bold,
+                          color: Colors.teal,
+                        ),
+                      ),
                     ],
-                  )
+                  ),
               ],
             ),
             if (!isPending) ...[
@@ -157,18 +276,30 @@ class _MembersListScreenState extends State<MembersListScreen> {
                 children: [
                   Column(
                     children: [
-                      const Text("Savings", style: TextStyle(fontSize: 12, color: Colors.black54)),
-                      Text("₹$savings", style: const TextStyle(fontWeight: FontWeight.bold)),
+                      const Text(
+                        "Savings",
+                        style: TextStyle(fontSize: 12, color: Colors.black54),
+                      ),
+                      Text(
+                        "₹$savings",
+                        style: const TextStyle(fontWeight: FontWeight.bold),
+                      ),
                     ],
                   ),
                   Column(
                     children: [
-                      const Text("Active Loan", style: TextStyle(fontSize: 12, color: Colors.black54)),
-                      Text(hasActiveLoan ? "Yes" : "No", style: const TextStyle(fontWeight: FontWeight.bold)),
+                      const Text(
+                        "Active Loan",
+                        style: TextStyle(fontSize: 12, color: Colors.black54),
+                      ),
+                      Text(
+                        hasActiveLoan ? "Yes" : "No",
+                        style: const TextStyle(fontWeight: FontWeight.bold),
+                      ),
                     ],
                   ),
                 ],
-              )
+              ),
             ],
             if (isPending) ...[
               const SizedBox(height: 16),
@@ -184,7 +315,9 @@ class _MembersListScreenState extends State<MembersListScreen> {
                             .doc(member['id'])
                             .update({'status': 'REJECTED'});
                       },
-                      style: OutlinedButton.styleFrom(foregroundColor: Colors.red),
+                      style: OutlinedButton.styleFrom(
+                        foregroundColor: Colors.red,
+                      ),
                       child: const Text("Reject"),
                     ),
                   ),
@@ -199,13 +332,16 @@ class _MembersListScreenState extends State<MembersListScreen> {
                             .doc(member['id'])
                             .update({'status': 'APPROVED'});
                       },
-                      style: ElevatedButton.styleFrom(backgroundColor: Colors.green, foregroundColor: Colors.white),
+                      style: ElevatedButton.styleFrom(
+                        backgroundColor: Colors.green,
+                        foregroundColor: Colors.white,
+                      ),
                       child: const Text("Approve"),
                     ),
-                  )
+                  ),
                 ],
-              )
-            ]
+              ),
+            ],
           ],
         ),
       ),

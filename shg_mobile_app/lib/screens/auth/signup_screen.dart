@@ -305,7 +305,7 @@ class _SignupScreenState extends State<SignupScreen> {
                   const Text("Already have an account? "),
                   TextButton(
                     onPressed: () => context.go('/login'),
-                    child: const Text("Login here", style: TextStyle(color: Color(0xFF0D9488))),
+                    child: const Text("Login", style: TextStyle(color: Color(0xFF0D9488))),
                   ),
                 ],
               ),
